@@ -351,6 +351,40 @@ app.post('/api/profesores', async (req, res) => {
     }
 });
 
+// 3. EDITAR un Profesor
+app.put('/api/profesores/:id', async (req, res) => {
+    const idProfe = req.params.id;
+    const { nombre, apellido, dni, email, telefono } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const query = 'UPDATE usuarios SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ? WHERE id = ? AND rol = "profe"';
+        await connection.execute(query, [nombre, apellido, dni, email, telefono, idProfe]);
+        res.json({ mensaje: '¡Profesor actualizado con éxito!' });
+    } catch (error) {
+        console.error("Error al editar profe:", error);
+        res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// 4. ELIMINAR un Profesor
+app.delete('/api/profesores/:id', async (req, res) => {
+    const idProfe = req.params.id;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute('DELETE FROM usuarios WHERE id = ? AND rol = "profe"', [idProfe]);
+        res.json({ mensaje: 'Profesor eliminado del sistema.' });
+    } catch (error) {
+        console.error("Error al eliminar profe:", error);
+        res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // =========================================================
 // --- Endpoints para CONTROL DE ACCESOS ---
 // =========================================================
@@ -420,6 +454,8 @@ app.get('/api/accesos/filtrar', async (req, res) => {
         if (connection) await connection.end();
     }
 });
+
+
 
 // =========================================================
 // --- Endpoints para CAJA Y PAGOS ---
