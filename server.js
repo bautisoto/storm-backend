@@ -247,13 +247,16 @@ app.put('/api/alumnos/:id/profe', async (req, res) => {
 
 app.put('/api/alumnos/:id/perfil', async (req, res) => {
     const idAlumno = req.params.id;
-    const { nombre, apellido, dni, email, telefono } = req.body;
+    // 1. Agregamos plan_actual en la recepción de datos
+    const { nombre, apellido, dni, email, telefono, plan_actual } = req.body;
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        const query = 'UPDATE usuarios SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ? WHERE id = ?';
-        await connection.execute(query, [nombre, apellido, dni, email, telefono, idAlumno]);
-        res.json({ mensaje: '¡Perfil actualizado con éxito!' });
+        // 2. Sumamos plan_actual = ? a la instrucción de la base de datos
+        const query = 'UPDATE usuarios SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ?, plan_actual = ? WHERE id = ?';
+        // 3. Pasamos la variable al array (¡ojo de ponerlo antes del idAlumno!)
+        await connection.execute(query, [nombre, apellido, dni, email, telefono, plan_actual, idAlumno]);
+        res.json({ mensaje: '¡Perfil y plan actualizados con éxito!' });
     } catch (error) {
         res.status(500).json({ error: 'Error interno al actualizar perfil' });
     } finally {
