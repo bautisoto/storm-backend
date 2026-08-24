@@ -208,6 +208,7 @@ app.get('/api/alumnos', async (req, res) => {
         const query = `
             SELECT 
                 u.id, u.nombre, u.apellido, u.dni, u.email, u.telefono, u.profe_asignado,
+                u.nivel, u.objetivo, u.fecha_baja, u.motivo_baja, 
                 COALESCE(MAX(p.nombre), 'Sin plan') AS plan_actual,
                 COALESCE(MAX(s.estado), 'Sin abono') AS estado_cuenta
             FROM usuarios u
