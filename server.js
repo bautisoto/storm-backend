@@ -9,7 +9,7 @@ const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
         user: 'comunicaciones.storm@gmail.com', // Poner el mail oficial acá
-        pass: 'stormtraining2026' // Poner las 16 letras sin espacios
+        pass: 'azokqmlfmjppodug' // Poner las 16 letras sin espacios
     }
 });
 
@@ -784,7 +784,7 @@ app.post('/api/comunicaciones/enviar', async (req, res) => {
         // Ejecutamos el envío de correos a todos en paralelo
         const promesas = destinatarios.map(email => {
             return transporter.sendMail({
-                from: '"STORM Gym" <TU_EMAIL_DEL_GYM@gmail.com>', // Tiene que ser el mismo mail de arriba
+                from: '"STORM Gym" <comunicaciones.storm@gmail.com>', // Tiene que ser el mismo mail de arriba
                 to: email,
                 subject: asunto,
                 text: cuerpo
