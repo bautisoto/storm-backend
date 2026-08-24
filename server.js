@@ -2,6 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
+const nodemailer = require('nodemailer');
+
+// Configuramos el "Cartero" con la cuenta de Gmail del gimnasio
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'comunicaciones.storm@gmail.com', // Poner el mail oficial acá
+        pass: 'stormtraining2026' // Poner las 16 letras sin espacios
+    }
+});
 
 const app = express();
 // Si la nube nos da un puerto lo usamos, sino usamos el 3000 localmente
@@ -759,6 +769,33 @@ app.put('/api/rutinas/:id', async (req, res) => {
         res.status(500).json({ error: 'Error interno' });
     } finally {
         if (connection) await connection.end();
+    }
+});
+
+// Ruta para mandar los mails masivos
+app.post('/api/comunicaciones/enviar', async (req, res) => {
+    const { destinatarios, asunto, cuerpo } = req.body;
+
+    if (!destinatarios || destinatarios.length === 0) {
+        return res.status(400).json({ error: 'No hay destinatarios válidos' });
+    }
+
+    try {
+        // Ejecutamos el envío de correos a todos en paralelo
+        const promesas = destinatarios.map(email => {
+            return transporter.sendMail({
+                from: '"STORM Gym" <TU_EMAIL_DEL_GYM@gmail.com>', // Tiene que ser el mismo mail de arriba
+                to: email,
+                subject: asunto,
+                text: cuerpo
+            });
+        });
+
+        await Promise.all(promesas);
+        res.json({ mensaje: '¡Todos los correos fueron enviados con éxito!' });
+    } catch (error) {
+        console.error('Error enviando correos:', error);
+        res.status(500).json({ error: 'Fallo al enviar algunos correos.' });
     }
 });
 
