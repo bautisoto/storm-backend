@@ -848,6 +848,51 @@ app.post('/api/comunicaciones/enviar', async (req, res) => {
     }
 });
 
+// ==========================================
+// RUTAS PARA EL CATÁLOGO DE EJERCICIOS (LIBRERÍA)
+// ==========================================
+
+// Obtener todo el catálogo
+app.get('/api/catalogo-ejercicios', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const [rows] = await connection.execute('SELECT * FROM catalogo_ejercicios ORDER BY nombre ASC');
+        res.json(rows);
+    } catch (error) {
+        console.error('Error al obtener catálogo:', error);
+        res.status(500).json({ error: 'Error del servidor' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// Agregar un nuevo ejercicio al catálogo (Ideal para un futuro panel de admin)
+app.post('/api/catalogo-ejercicios', async (req, res) => {
+    const { nombre, grupo_muscular, descripcion, url_video, url_imagen } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const query = `
+            INSERT INTO catalogo_ejercicios 
+            (nombre, grupo_muscular, descripcion, url_video, url_imagen) 
+            VALUES (?, ?, ?, ?, ?)
+        `;
+        const params = [nombre, grupo_muscular || null, descripcion || null, url_video || null, url_imagen || null];
+        await connection.execute(query, params);
+        res.json({ mensaje: 'Ejercicio agregado al catálogo' });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            res.status(400).json({ error: 'El ejercicio ya existe en el catálogo' });
+        } else {
+            console.error('Error al crear ejercicio:', error);
+            res.status(500).json({ error: 'Error del servidor' });
+        }
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
