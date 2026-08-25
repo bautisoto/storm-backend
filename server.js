@@ -314,16 +314,17 @@ app.put('/api/alumnos/:id/estado', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        const query = 'UPDATE usuarios SET estado_cuenta = ?, fecha_baja = ?, motivo_baja = ? WHERE id = ?';
         
-        // Red de seguridad vital para las fechas: Si llega un texto vacío "", lo forzamos a NULL
-        const fechaSegura = fecha_baja ? fecha_baja : null; 
-        const motivoSeguro = motivo_baja ? motivo_baja : null;
+        // Red de seguridad máxima: si es un string vacío, lo pasamos a null real
+        const fechaSegura = (fecha_baja === '' || fecha_baja === undefined) ? null : fecha_baja;
+        const motivoSeguro = (motivo_baja === '' || motivo_baja === undefined) ? null : motivo_baja;
 
+        const query = 'UPDATE usuarios SET estado_cuenta = ?, fecha_baja = ?, motivo_baja = ? WHERE id = ?';
         await connection.execute(query, [estado, fechaSegura, motivoSeguro, idAlumno]);
+        
         res.json({ mensaje: '¡Estado actualizado con éxito!' });
     } catch (error) {
-        console.error('🔴 ERROR EN CAMBIAR ESTADO:', error);
+        console.error('🔴 ERROR CRITICO EN CAMBIAR ESTADO:', error);
         res.status(500).json({ error: 'Error al cambiar estado' });
     } finally {
         if (connection) await connection.end();
