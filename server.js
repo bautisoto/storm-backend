@@ -230,10 +230,14 @@ app.post('/api/alumnos', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
+        
+        // Asignamos el DNI como contraseña provisional por defecto para que la base de datos no rechace el registro
+        const passwordProvisional = dni || '123456';
+
         const query = `
             INSERT INTO usuarios 
-            (nombre, apellido, dni, email, telefono, rol, plan_actual, profe_asignado, nivel, objetivo, estado_cuenta) 
-            VALUES (?, ?, ?, ?, ?, 'alumno', ?, ?, ?, ?, 'activa')
+            (nombre, apellido, dni, email, telefono, password, rol, plan_actual, profe_asignado, nivel, objetivo, estado_cuenta) 
+            VALUES (?, ?, ?, ?, ?, ?, 'alumno', ?, ?, ?, ?, 'activa')
         `;
         
         const params = [
@@ -242,6 +246,7 @@ app.post('/api/alumnos', async (req, res) => {
             dni || '', 
             email || '', 
             telefono || '', 
+            passwordProvisional,
             plan_actual || 'Sin plan', 
             profe_asignado || 'Sin asignar', 
             nivel || 'Principiante', 
@@ -316,10 +321,8 @@ app.put('/api/alumnos/:id/estado', async (req, res) => {
         connection = await mysql.createConnection(dbConfig);
         const query = 'UPDATE usuarios SET estado_cuenta = ?, fecha_baja = ?, motivo_baja = ? WHERE id = ?';
         
-        // EL ESCUDO DEFINITIVO CONTRA EL 'UNDEFINED'
-        // Si cualquier variable llega como 'undefined' o vacía, la forzamos a 'null' o texto válido.
         const params = [
-            estado !== undefined ? estado : 'activa',
+            estado !== undefined ? estado : 'vencida',
             fecha_baja ? fecha_baja : null,
             motivo_baja ? motivo_baja : null,
             idAlumno
