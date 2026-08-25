@@ -205,21 +205,20 @@ app.get('/api/alumnos', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
+        // Le sacamos los JOINs para que lea los datos reales y directos del usuario
         const query = `
             SELECT 
-                u.id, u.nombre, u.apellido, u.dni, u.email, u.telefono, u.profe_asignado,
-                u.nivel, u.objetivo, u.fecha_baja, u.motivo_baja, 
-                COALESCE(MAX(p.nombre), 'Sin plan') AS plan_actual,
-                COALESCE(MAX(s.estado), 'Sin abono') AS estado_cuenta
-            FROM usuarios u
-            LEFT JOIN suscripciones s ON u.id = s.usuario_id AND s.estado = 'activa'
-            LEFT JOIN planes p ON s.plan_id = p.id
-            WHERE u.rol = 'alumno'
-            GROUP BY u.id
+                id, nombre, apellido, dni, email, telefono, profe_asignado,
+                nivel, objetivo, fecha_baja, motivo_baja, 
+                COALESCE(plan_actual, 'Sin plan') AS plan_actual,
+                COALESCE(estado_cuenta, 'sin abono') AS estado_cuenta
+            FROM usuarios 
+            WHERE rol = 'alumno'
         `;
         const [alumnos] = await connection.execute(query);
         res.json(alumnos);
     } catch (error) {
+        console.error('🔴 ERROR AL LEER ALUMNOS:', error);
         res.status(500).json({ error: 'Error interno al leer de MySQL' });
     } finally {
         if (connection) await connection.end();
