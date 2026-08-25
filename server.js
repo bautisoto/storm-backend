@@ -227,15 +227,33 @@ app.get('/api/alumnos', async (req, res) => {
 });
 
 app.post('/api/alumnos', async (req, res) => {
-    const { nombre, apellido, dni, email, telefono, nivel, objetivo } = req.body;
+    const { nombre, apellido, dni, email, telefono, plan_actual, profe_asignado, nivel, objetivo } = req.body;
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        const query = `INSERT INTO usuarios (nombre, apellido, dni, email, telefono, password, rol) VALUES (?, ?, ?, ?, ?, ?, 'alumno')`;
-        await connection.execute(query, [nombre, apellido, dni, email, telefono, plan_actual, nivel, objetivo, dni]);
-        res.status(201).json({ mensaje: '¡Socio guardado con éxito!' });
+        const query = `
+            INSERT INTO usuarios 
+            (nombre, apellido, dni, email, telefono, rol, plan_actual, profe_asignado, nivel, objetivo, estado_cuenta) 
+            VALUES (?, ?, ?, ?, ?, 'alumno', ?, ?, ?, ?, 'activa')
+        `;
+        
+        const params = [
+            nombre || '', 
+            apellido || '', 
+            dni || '', 
+            email || '', 
+            telefono || '', 
+            plan_actual || 'Sin plan', 
+            profe_asignado || 'Sin asignar', 
+            nivel || 'Principiante', 
+            objetivo || 'Estética y salud'
+        ];
+        
+        await connection.execute(query, params);
+        res.json({ mensaje: 'Socio creado con éxito' });
     } catch (error) {
-        res.status(500).json({ error: 'Error interno al guardar en MySQL' });
+        console.error('🔴 ERROR AL CREAR SOCIO:', error);
+        res.status(500).json({ error: 'Error al crear socio' });
     } finally {
         if (connection) await connection.end();
     }
@@ -258,17 +276,33 @@ app.put('/api/alumnos/:id/profe', async (req, res) => {
 
 app.put('/api/alumnos/:id/perfil', async (req, res) => {
     const idAlumno = req.params.id;
-    // 1. Agregamos plan_actual en la recepción de datos
     const { nombre, apellido, dni, email, telefono, plan_actual, nivel, objetivo, profe_asignado } = req.body;
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        // 2. Sumamos plan_actual = ? a la instrucción de la base de datos
-        const query = 'UPDATE usuarios SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ?, plan_actual, nivel = ?, objetivo = ?, profe_asignado = ? WHERE id = ?';
-        // 3. Pasamos la variable al array (¡ojo de ponerlo antes del idAlumno!)
-        await connection.execute(query, [nombre, apellido, dni, email, telefono, plan_actual, nivel, objetivo, profe_asignado, idAlumno]);
-        res.json({ mensaje: '¡Perfil y plan actualizados con éxito!' });
+        const query = `
+            UPDATE usuarios 
+            SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ?, plan_actual = ?, nivel = ?, objetivo = ?, profe_asignado = ? 
+            WHERE id = ?
+        `;
+        // Red de seguridad: si algo llega indefinido, lo forzamos a texto para que MySQL no explote
+        const params = [
+            nombre || '', 
+            apellido || '', 
+            dni || '', 
+            email || '', 
+            telefono || '', 
+            plan_actual || 'Sin plan', 
+            nivel || 'Intermedio', 
+            objetivo || 'Estética y salud', 
+            profe_asignado || 'Sin asignar', 
+            idAlumno
+        ];
+        
+        await connection.execute(query, params);
+        res.json({ mensaje: '¡Perfil actualizado con éxito!' });
     } catch (error) {
+        console.error('🔴 ERROR EN EDITAR PERFIL:', error);
         res.status(500).json({ error: 'Error interno al actualizar perfil' });
     } finally {
         if (connection) await connection.end();
@@ -277,14 +311,21 @@ app.put('/api/alumnos/:id/perfil', async (req, res) => {
 
 app.put('/api/alumnos/:id/estado', async (req, res) => {
     const idAlumno = req.params.id;
-    const { nuevoEstado } = req.body;
+    const { estado, fecha_baja, motivo_baja } = req.body; 
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        await connection.execute("UPDATE suscripciones SET estado = ? WHERE usuario_id = ?", [nuevoEstado, idAlumno]);
-        res.json({ mensaje: '¡Estado de cuenta actualizado!' });
+        const query = 'UPDATE usuarios SET estado_cuenta = ?, fecha_baja = ?, motivo_baja = ? WHERE id = ?';
+        
+        // Red de seguridad vital para las fechas: Si llega un texto vacío "", lo forzamos a NULL
+        const fechaSegura = fecha_baja ? fecha_baja : null; 
+        const motivoSeguro = motivo_baja ? motivo_baja : null;
+
+        await connection.execute(query, [estado, fechaSegura, motivoSeguro, idAlumno]);
+        res.json({ mensaje: '¡Estado actualizado con éxito!' });
     } catch (error) {
-        res.status(500).json({ error: 'Error interno al cambiar estado' });
+        console.error('🔴 ERROR EN CAMBIAR ESTADO:', error);
+        res.status(500).json({ error: 'Error al cambiar estado' });
     } finally {
         if (connection) await connection.end();
     }
