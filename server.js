@@ -314,14 +314,18 @@ app.put('/api/alumnos/:id/estado', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        
-        // Red de seguridad máxima: si es un string vacío, lo pasamos a null real
-        const fechaSegura = (fecha_baja === '' || fecha_baja === undefined) ? null : fecha_baja;
-        const motivoSeguro = (motivo_baja === '' || motivo_baja === undefined) ? null : motivo_baja;
-
         const query = 'UPDATE usuarios SET estado_cuenta = ?, fecha_baja = ?, motivo_baja = ? WHERE id = ?';
-        await connection.execute(query, [estado, fechaSegura, motivoSeguro, idAlumno]);
         
+        // EL ESCUDO DEFINITIVO CONTRA EL 'UNDEFINED'
+        // Si cualquier variable llega como 'undefined' o vacía, la forzamos a 'null' o texto válido.
+        const params = [
+            estado !== undefined ? estado : 'activa',
+            fecha_baja ? fecha_baja : null,
+            motivo_baja ? motivo_baja : null,
+            idAlumno
+        ];
+
+        await connection.execute(query, params);
         res.json({ mensaje: '¡Estado actualizado con éxito!' });
     } catch (error) {
         console.error('🔴 ERROR CRITICO EN CAMBIAR ESTADO:', error);
