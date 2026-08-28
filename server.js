@@ -592,8 +592,13 @@ app.get('/api/clases', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
+        // Agregamos la subconsulta mágica para contar las reservas reales
         const query = `
-            SELECT c.*, u.nombre as profe_nombre, u.apellido as profe_apellido 
+            SELECT 
+                c.*, 
+                u.nombre as profe_nombre, 
+                u.apellido as profe_apellido,
+                (SELECT COUNT(*) FROM reservas r WHERE r.clase_id = c.id) as total_anotados
             FROM clases c 
             LEFT JOIN usuarios u ON c.profe_id = u.id 
             ORDER BY c.fecha_hora ASC
