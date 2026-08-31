@@ -898,6 +898,56 @@ app.post('/api/catalogo-ejercicios', async (req, res) => {
     }
 });
 
+// =========================================================
+// --- Endpoints para PLANIFICADOR DE RUTINAS ---
+// =========================================================
+
+// 1. CARGAR la planificación guardada de un alumno
+app.get('/api/alumnos/:id/planificacion', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const query = 'SELECT * FROM planificacion_rutinas WHERE usuario_id = ? ORDER BY fecha_asignada ASC';
+        const [rows] = await connection.execute(query, [req.params.id]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno al cargar planificacion' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// 2. GUARDAR la nueva planificación
+app.post('/api/alumnos/:id/planificacion', async (req, res) => {
+    const usuario_id = req.params.id;
+    const { planificacion, fechaMin, fechaMax } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // Magia: Borramos solo lo que estaba en este rango de fechas para no duplicar si el profe mueve un bloque
+        await connection.execute(
+            'DELETE FROM planificacion_rutinas WHERE usuario_id = ? AND fecha_asignada BETWEEN ? AND ?',
+            [usuario_id, fechaMin, fechaMax]
+        );
+
+        // Insertamos los bloques nuevos que nos mandó el Frontend
+        if (planificacion && planificacion.length > 0) {
+            for (let bloque of planificacion) {
+                await connection.execute(
+                    'INSERT INTO planificacion_rutinas (usuario_id, fecha_asignada, nombre_bloque) VALUES (?, ?, ?)',
+                    [usuario_id, bloque.fecha_asignada, bloque.nombre_bloque]
+                );
+            }
+        }
+        res.json({ success: true, mensaje: "Planificación guardada" });
+    } catch (error) {
+        console.error("Error guardando planificación:", error);
+        res.status(500).json({ error: 'Error interno al guardar' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
