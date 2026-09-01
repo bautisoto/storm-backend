@@ -546,10 +546,63 @@ app.post('/api/pagos', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction(); // Empezamos la transacción segura
+
+        // 1. Guardamos el ticket en tu caja (Tu código original)
         const query = `INSERT INTO pagos_caja (usuario_id, tipo, monto, metodo_pago, categoria, concepto, fecha_pago) VALUES (?, ?, ?, ?, ?, ?, NOW())`;
         await connection.execute(query, [usuario_id || null, tipo, monto, metodo_pago, categoria, concepto || '']);
+
+        // 2. LA MAGIA: Si es un "Pago Cuota" y tiene un usuario asignado, le estiramos el vencimiento
+        if (categoria === 'Pago Cuota' && usuario_id) {
+            
+            // Buscamos su último vencimiento
+            const [suscripciones] = await connection.execute(
+                'SELECT fecha_vencimiento FROM suscripciones WHERE usuario_id = ? ORDER BY id DESC LIMIT 1',
+                [usuario_id]
+            );
+
+            let nuevaFechaVencimiento = new Date(); 
+            const hoy = new Date();
+
+            if (suscripciones.length > 0 && suscripciones[0].fecha_vencimiento) {
+                const vencimientoActual = new Date(suscripciones[0].fecha_vencimiento);
+                // Si estaba adelantado, sumamos desde su fecha futura. Si estaba vencido, sumamos desde hoy.
+                if (vencimientoActual >= hoy) {
+                    nuevaFechaVencimiento = vencimientoActual;
+                }
+            }
+
+            // Sumamos 1 mes exacto
+            nuevaFechaVencimiento.setMonth(nuevaFechaVencimiento.getMonth() + 1);
+            const fechaStr = `${nuevaFechaVencimiento.getFullYear()}-${String(nuevaFechaVencimiento.getMonth()+1).padStart(2,'0')}-${String(nuevaFechaVencimiento.getDate()).padStart(2,'0')}`;
+
+            // Actualizamos o insertamos en suscripciones
+            if (suscripciones.length > 0) {
+                await connection.execute(
+                    `UPDATE suscripciones SET fecha_vencimiento = ?, estado = 'activa' WHERE usuario_id = ?`,
+                    [fechaStr, usuario_id]
+                );
+            } else {
+                await connection.execute(
+                    `INSERT INTO suscripciones (usuario_id, fecha_vencimiento, estado) VALUES (?, ?, 'activa')`,
+                    [usuario_id, fechaStr]
+                );
+            }
+
+            // (Opcional) Si tenés una columna de estado en la tabla usuarios o alumnos, la actualizamos acá:
+            // Vi que en tu GET hacés JOIN con 'usuarios', así que asumo que tu tabla principal se llama usuarios.
+            await connection.execute(
+                'UPDATE usuarios SET estado_cuenta = "activa" WHERE id = ?', 
+                [usuario_id]
+            );
+        }
+
+        await connection.commit(); // Confirmamos todos los cambios juntos
         res.json({ success: true });
+        
     } catch (error) {
+        if (connection) await connection.rollback(); // Si algo falla, deshacemos todo
+        console.error("Error en pagos:", error);
         res.status(500).json({ error: 'Error interno' });
     } finally {
         if (connection) await connection.end();
@@ -947,6 +1000,82 @@ app.post('/api/alumnos/:id/planificacion', async (req, res) => {
     } finally {
         if (connection) await connection.end();
     }
+});
+
+// =========================================================
+// --- Endpoints para TIENDA Y BENEFICIOS ---
+// =========================================================
+
+// 1. OBTENER TODO (GET)
+app.get('/api/tienda/productos', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const [rows] = await connection.execute('SELECT * FROM tienda_productos ORDER BY id DESC');
+        res.json(rows);
+    } catch (e) { res.status(500).json({ error: 'Error interno' }); } finally { if (connection) await connection.end(); }
+});
+
+app.get('/api/tienda/beneficios', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const [rows] = await connection.execute('SELECT * FROM tienda_beneficios ORDER BY id DESC');
+        res.json(rows);
+    } catch (e) { res.status(500).json({ error: 'Error interno' }); } finally { if (connection) await connection.end(); }
+});
+
+// GUARDAR o EDITAR PRODUCTO (POST)
+app.post('/api/tienda/productos', async (req, res) => {
+    // Agregamos imagen_url a lo que recibimos del frontend
+    const { id, nombre, precio, stock, descripcion, imagen_url } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        if (id) {
+            await connection.execute(
+                'UPDATE tienda_productos SET nombre=?, precio=?, stock=?, descripcion=?, imagen_url=? WHERE id=?', 
+                [nombre, precio, stock, descripcion, imagen_url || '', id]
+            );
+        } else {
+            await connection.execute(
+                'INSERT INTO tienda_productos (nombre, precio, stock, descripcion, imagen_url) VALUES (?, ?, ?, ?, ?)', 
+                [nombre, precio, stock, descripcion, imagen_url || '']
+            );
+        }
+        res.json({ success: true });
+    } catch (e) { 
+        console.error(e);
+        res.status(500).json({ error: 'Error al guardar producto' }); 
+    } finally { 
+        if (connection) await connection.end(); 
+    }
+});
+
+app.post('/api/tienda/beneficios', async (req, res) => {
+    const { id, nombre, descuento, arroba, aclaracion } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        if (id) {
+            await connection.execute('UPDATE tienda_beneficios SET nombre=?, descuento=?, arroba=?, aclaracion=? WHERE id=?', [nombre, descuento, arroba, aclaracion, id]);
+        } else {
+            await connection.execute('INSERT INTO tienda_beneficios (nombre, descuento, arroba, aclaracion) VALUES (?, ?, ?, ?)', [nombre, descuento, arroba, aclaracion]);
+        }
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: 'Error al guardar beneficio' }); } finally { if (connection) await connection.end(); }
+});
+
+// 3. ELIMINAR (DELETE)
+app.delete('/api/tienda/:tipo/:id', async (req, res) => {
+    const { tipo, id } = req.params;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const tabla = tipo === 'producto' ? 'tienda_productos' : 'tienda_beneficios';
+        await connection.execute(`DELETE FROM ${tabla} WHERE id = ?`, [id]);
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: 'Error al eliminar' }); } finally { if (connection) await connection.end(); }
 });
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
