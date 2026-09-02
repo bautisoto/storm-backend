@@ -1098,6 +1098,43 @@ app.get('/api/suscripciones/usuario/:id', async (req, res) => {
     }
 });
 
+// =========================================================
+// (Asistencia y Días Fijos) ---
+// =========================================================
+app.get('/api/alumnos/:id/asistencia', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // 1. Buscamos el título de su clase fija
+        const [claseFija] = await connection.execute(`
+            SELECT c.titulo 
+            FROM usuarios u 
+            LEFT JOIN clases c ON u.clase_fija_id = c.id 
+            WHERE u.id = ?
+        `, [req.params.id]);
+
+        // 2. Buscamos sus últimas 3 reservas para el historial
+        const [historial] = await connection.execute(`
+            SELECT c.titulo, r.fecha_reserva, r.asistencia 
+            FROM reservas r 
+            JOIN clases c ON r.clase_id = c.id 
+            WHERE r.usuario_id = ? 
+            ORDER BY r.fecha_reserva DESC 
+            LIMIT 3
+        `, [req.params.id]);
+
+        res.json({
+            clase_fija: claseFija[0]?.titulo || null,
+            historial: historial
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
