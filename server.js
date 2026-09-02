@@ -1077,6 +1077,27 @@ app.delete('/api/tienda/:tipo/:id', async (req, res) => {
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: 'Error al eliminar' }); } finally { if (connection) await connection.end(); }
 });
+
+// =========================================================
+// --- Endpoint para Perfil 360 (Suscripción) ---
+// =========================================================
+app.get('/api/suscripciones/usuario/:id', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        // Buscamos el último vencimiento de este usuario
+        const [rows] = await connection.execute(
+            'SELECT fecha_vencimiento FROM suscripciones WHERE usuario_id = ? ORDER BY id DESC LIMIT 1', 
+            [req.params.id]
+        );
+        res.json(rows[0] || {}); // Si no tiene, devuelve vacío
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
