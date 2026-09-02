@@ -1,10 +1,10 @@
 const mysql = require('mysql2/promise');
 
 const dbConfig = {
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root', 
-    password: process.env.DB_PASSWORD || '14090645', 
-    database: process.env.DB_NAME || 'storm_db'
+    host: 'bi35lzduvmqywojdiq3f-mysql.services.clever-cloud.com'
+    user: 'urzppyg1ah8homwr', 
+    password: 'u7g87HbWAi0PDogKFffd', 
+    database: 'bi35lzduvmqywojdiq3f'
 };
 
 const datosManuales = {
