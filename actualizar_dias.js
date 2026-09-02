@@ -1,7 +1,7 @@
 const mysql = require('mysql2/promise');
 
 const dbConfig = {
-    host: 'bi35lzduvmqywojdiq3f-mysql.services.clever-cloud.com'
+    host: 'bi35lzduvmqywojdiq3f-mysql.services.clever-cloud.com',
     user: 'urzppyg1ah8homwr', 
     password: 'u7g87HbWAi0PDogKFffd', 
     database: 'bi35lzduvmqywojdiq3f'
