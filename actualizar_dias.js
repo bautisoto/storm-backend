@@ -1,6 +1,11 @@
 const mysql = require('mysql2/promise');
 
-const dbConfig = { host: 'localhost', user: 'root', password: '14090645', database: 'storm_db' };
+const dbConfig = {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'root', 
+    password: process.env.DB_PASSWORD || '14090645', 
+    database: process.env.DB_NAME || 'storm_db'
+};
 
 const datosManuales = {
     "Abba Magali": "LUN 15:00, MIE 15:00",
