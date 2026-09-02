@@ -1106,15 +1106,10 @@ app.get('/api/alumnos/:id/asistencia', async (req, res) => {
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // 1. Buscamos el título de su clase fija
-        const [claseFija] = await connection.execute(`
-            SELECT c.titulo 
-            FROM usuarios u 
-            LEFT JOIN clases c ON u.clase_fija_id = c.id 
-            WHERE u.id = ?
-        `, [req.params.id]);
+        // 1. Buscamos los días fijos directo del usuario
+        const [usuario] = await connection.execute(`SELECT dias_fijos FROM usuarios WHERE id = ?`, [req.params.id]);
 
-        // 2. Buscamos sus últimas 3 reservas para el historial
+        // 2. Buscamos el historial
         const [historial] = await connection.execute(`
             SELECT c.titulo, r.fecha_reserva, r.asistencia 
             FROM reservas r 
@@ -1125,7 +1120,7 @@ app.get('/api/alumnos/:id/asistencia', async (req, res) => {
         `, [req.params.id]);
 
         res.json({
-            clase_fija: claseFija[0]?.titulo || null,
+            dias_fijos: usuario[0]?.dias_fijos || null,
             historial: historial
         });
     } catch (error) {
