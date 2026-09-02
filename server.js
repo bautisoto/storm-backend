@@ -280,16 +280,20 @@ app.put('/api/alumnos/:id/profe', async (req, res) => {
 
 app.put('/api/alumnos/:id/perfil', async (req, res) => {
     const idAlumno = req.params.id;
-    const { nombre, apellido, dni, email, telefono, plan_actual, nivel, objetivo, profe_asignado } = req.body;
+    // Agregamos "dias_fijos" a lo que recibimos del frontend
+    const { nombre, apellido, dni, email, telefono, plan_actual, nivel, objetivo, profe_asignado, dias_fijos } = req.body;
+    
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction(); // Empezamos la transacción segura
+
+        // 1. ACTUALIZAR EL PERFIL DEL ALUMNO (Tu código original + dias_fijos)
         const query = `
             UPDATE usuarios 
-            SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ?, plan_actual = ?, nivel = ?, objetivo = ?, profe_asignado = ? 
+            SET nombre = ?, apellido = ?, dni = ?, email = ?, telefono = ?, plan_actual = ?, nivel = ?, objetivo = ?, profe_asignado = ?, dias_fijos = ? 
             WHERE id = ?
         `;
-        // Red de seguridad: si algo llega indefinido, lo forzamos a texto para que MySQL no explote
         const params = [
             nombre || '', 
             apellido || '', 
@@ -300,14 +304,55 @@ app.put('/api/alumnos/:id/perfil', async (req, res) => {
             nivel || 'Intermedio', 
             objetivo || 'Estética y salud', 
             profe_asignado || 'Sin asignar', 
+            dias_fijos || null, // Guardamos la etiqueta de texto nueva
             idAlumno
         ];
-        
         await connection.execute(query, params);
-        res.json({ mensaje: '¡Perfil actualizado con éxito!' });
+
+        // 2. SINCRONIZACIÓN: Limpiar reservas FUTURAS pendientes
+        await connection.execute(`
+            DELETE r FROM reservas r
+            JOIN clases c ON r.clase_id = c.id
+            WHERE r.usuario_id = ? AND r.asistencia = 'pendiente' AND c.fecha_hora >= NOW()
+        `, [idAlumno]);
+
+        // 3. SINCRONIZACIÓN: Crear las nuevas reservas en el calendario
+        if (dias_fijos && dias_fijos.trim() !== '') {
+            const turnos = dias_fijos.split(',').map(t => t.trim()); 
+            const mapaDias = { 'DOM':1, 'LUN':2, 'MAR':3, 'MIE':4, 'JUE':5, 'VIE':6, 'SAB':7 };
+
+            for (const turno of turnos) {
+                const partes = turno.split(' '); 
+                if (partes.length === 2) {
+                    const diaNum = mapaDias[partes[0].toUpperCase()];
+                    const horaMinuto = partes[1];
+                    
+                    if (diaNum && horaMinuto) {
+                        const [clasesFuturas] = await connection.execute(`
+                            SELECT id FROM clases 
+                            WHERE DAYOFWEEK(fecha_hora) = ? 
+                            AND TIME(fecha_hora) = ? 
+                            AND fecha_hora >= NOW()
+                        `, [diaNum, `${horaMinuto}:00`]);
+
+                        for (const clase of clasesFuturas) {
+                            await connection.execute(
+                                'INSERT IGNORE INTO reservas (clase_id, usuario_id, estado, asistencia) VALUES (?, ?, "reservada", "pendiente")',
+                                [clase.id, idAlumno]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        await connection.commit(); // Confirmamos todos los cambios juntos
+        res.json({ mensaje: '¡Perfil actualizado y calendario sincronizado con éxito!' });
+        
     } catch (error) {
-        console.error('🔴 ERROR EN EDITAR PERFIL:', error);
-        res.status(500).json({ error: 'Error interno al actualizar perfil' });
+        if (connection) await connection.rollback(); // Si algo falla, deshacemos todo
+        console.error('🔴 ERROR EN EDITAR PERFIL Y CALENDARIO:', error);
+        res.status(500).json({ error: 'Error interno al actualizar perfil y calendario' });
     } finally {
         if (connection) await connection.end();
     }
