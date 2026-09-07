@@ -453,6 +453,25 @@ app.get('/api/dashboard/stats', async (req, res) => {
             ORDER BY u.apellido ASC
         `);
 
+        // --- GRÁFICO DE ASISTENCIAS (Líneas - Lunes a Sábado) ---
+        // WEEKDAY() devuelve 0 para Lunes, 1 para Martes... hasta 5 para Sábado.
+        const queryAsistencias = `
+            SELECT WEEKDAY(c.fecha_hora) as dia_semana, COUNT(*) as cantidad 
+            FROM reservas r
+            JOIN clases c ON r.clase_id = c.id
+            WHERE DATE_FORMAT(c.fecha_hora, '%Y-%m') = ? AND r.asistencia = 'presente'
+            GROUP BY dia_semana
+        `;
+        const [rsAsistencias] = await connection.execute(queryAsistencias, [mesSolicitado]);
+        
+        // Preparamos un array vacío de 6 lugares (Lun a Sáb)
+        const asistenciasPorDia = [0, 0, 0, 0, 0, 0]; 
+        rsAsistencias.forEach(row => {
+            if (row.dia_semana >= 0 && row.dia_semana <= 5) {
+                asistenciasPorDia[row.dia_semana] = row.cantidad;
+            }
+        });
+
         // --- EMPAQUETAMOS TODO Y LO MANDAMOS AL FRONTEND ---
         res.json({
             totalSocios: rsTotal[0]?.total || 0,
@@ -470,7 +489,8 @@ app.get('/api/dashboard/stats', async (req, res) => {
                 presentes: totalPresentes,
                 porcentajeAsistencia: totalReservas > 0 ? Math.round((totalPresentes / totalReservas) * 100) : 0
             },
-            morosos: listaMorosos
+            morosos: listaMorosos,
+            graficoAsistencias: asistenciasPorDia
         });
 
     } catch (error) {
