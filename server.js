@@ -395,17 +395,23 @@ app.get('/api/dashboard/stats', async (req, res) => {
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // --- MÉTRICAS DE SOCIOS (Se mantienen tus consultas originales) ---
+        // --- MÉTRICAS DE SOCIOS ---
         const [rsTotal] = await connection.execute("SELECT COUNT(*) as total FROM usuarios WHERE rol = 'alumno'");
         const [rsActivos] = await connection.execute("SELECT COUNT(DISTINCT usuario_id) as activos FROM suscripciones WHERE estado = 'activa'");
         
-        // --- ECONÓMICO (¡Ahora filtrado por el mes que elige Tomi!) ---
-        const queryCaja = `SELECT COALESCE(SUM(monto), 0) as total_ingresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ?`;
-        const [rsIngresos] = await connection.execute(queryCaja, [month, year]);
+        // ===============================================================
+        // --- ECONÓMICO (¡Acá estaba el error, ahora separa por tipo!) ---
+        // ===============================================================
+        
+        // 1. Sumamos SOLO los ingresos
+        const queryIngresos = `SELECT COALESCE(SUM(monto), 0) as total_ingresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ? AND tipo = 'ingreso'`;
+        const [rsIngresos] = await connection.execute(queryIngresos, [month, year]);
         const ingresosMes = rsIngresos[0].total_ingresos;
         
-        // Si más adelante sumás gastos a la BD, los conectamos acá. Por ahora va 0.
-        const gastosMes = 0; 
+        // 2. Sumamos SOLO los egresos (Gastos)
+        const queryEgresos = `SELECT COALESCE(SUM(monto), 0) as total_egresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ? AND tipo = 'egreso'`;
+        const [rsEgresos] = await connection.execute(queryEgresos, [month, year]);
+        const gastosMes = rsEgresos[0].total_egresos;
 
         // --- GRÁFICO DE PLANES ---
         const queryGrafico = `SELECT p.nombre AS plan, COUNT(s.id) AS cantidad FROM planes p LEFT JOIN suscripciones s ON p.id = s.plan_id AND s.estado = 'activa' GROUP BY p.id, p.nombre ORDER BY cantidad DESC`;
@@ -422,7 +428,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
         } catch (e) {}
         const sinAcceso = rsTotal[0].total - rsActivos[0].activos;
 
-        // --- NUEVO: OPERATIVO Y ENTRENAMIENTOS (Filtrado por mes) ---
+        // --- OPERATIVO Y ENTRENAMIENTOS (Filtrado por mes) ---
         const [clases] = await connection.execute(`SELECT COUNT(*) as total FROM clases WHERE DATE_FORMAT(fecha_hora, '%Y-%m') = ?`, [mesSolicitado]);
         const [reservas] = await connection.execute(`
             SELECT r.asistencia, COUNT(*) as cantidad FROM reservas r
@@ -437,7 +443,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
             if (r.asistencia === 'presente') totalPresentes += r.cantidad;
         });
 
-        // --- NUEVO: LISTA PARA LA TABLA DE MOROSOS ---
+        // --- LISTA PARA LA TABLA DE MOROSOS ---
         const [listaMorosos] = await connection.execute(`
             SELECT u.id, u.nombre, u.apellido, u.telefono, u.plan_actual 
             FROM usuarios u
