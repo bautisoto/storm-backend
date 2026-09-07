@@ -414,7 +414,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
         // --- ALERTAS GLOBALES ---
         let vencenPronto = 0; let vencidos = 0;
         try {
-            const [rsVencen] = await connection.execute("SELECT COUNT(*) as total FROM suscripciones WHERE estado = 'activa' AND fecha_fin BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), INTERVAL 7 DAY)");
+            const [rsVencen] = await connection.execute("SELECT COUNT(*) as total FROM suscripciones WHERE estado = 'activa' AND fecha_vencimiento BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), INTERVAL 7 DAY)");
             vencenPronto = rsVencen[0].total;
             
             const [rsVencidosData] = await connection.execute("SELECT COUNT(DISTINCT usuario_id) as total FROM suscripciones WHERE estado = 'vencida'");
@@ -639,35 +639,33 @@ app.post('/api/pagos', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
-        await connection.beginTransaction(); // Empezamos la transacción segura
+        await connection.beginTransaction(); 
 
-        // 1. Guardamos el ticket en tu caja (Tu código original)
+        // 1. Guardamos el ticket en tu caja
         const query = `INSERT INTO pagos_caja (usuario_id, tipo, monto, metodo_pago, categoria, concepto, fecha_pago) VALUES (?, ?, ?, ?, ?, ?, NOW())`;
         await connection.execute(query, [usuario_id || null, tipo, monto, metodo_pago, categoria, concepto || '']);
 
         // 2. LA MAGIA: Si es un "Pago Cuota" y tiene un usuario asignado, le estiramos el vencimiento
         if (categoria === 'Pago Cuota' && usuario_id) {
             
-            // Buscamos su último vencimiento
             const [suscripciones] = await connection.execute(
                 'SELECT fecha_vencimiento FROM suscripciones WHERE usuario_id = ? ORDER BY id DESC LIMIT 1',
                 [usuario_id]
             );
 
-            let nuevaFechaVencimiento = new Date(); 
+            let nuevaFechaVenc = new Date(); 
             const hoy = new Date();
 
             if (suscripciones.length > 0 && suscripciones[0].fecha_vencimiento) {
                 const vencimientoActual = new Date(suscripciones[0].fecha_vencimiento);
-                // Si estaba adelantado, sumamos desde su fecha futura. Si estaba vencido, sumamos desde hoy.
                 if (vencimientoActual >= hoy) {
-                    nuevaFechaVencimiento = vencimientoActual;
+                    nuevaFechaVenc = vencimientoActual;
                 }
             }
 
             // Sumamos 1 mes exacto
-            nuevaFechaVencimiento.setMonth(nuevaFechaVencimiento.getMonth() + 1);
-            const fechaStr = `${nuevaFechaVencimiento.getFullYear()}-${String(nuevaFechaVencimiento.getMonth()+1).padStart(2,'0')}-${String(nuevaFechaVencimiento.getDate()).padStart(2,'0')}`;
+            nuevaFechaVenc.setMonth(nuevaFechaVenc.getMonth() + 1);
+            const fechaStr = `${nuevaFechaVenc.getFullYear()}-${String(nuevaFechaVenc.getMonth()+1).padStart(2,'0')}-${String(nuevaFechaVenc.getDate()).padStart(2,'0')}`;
 
             // Actualizamos o insertamos en suscripciones
             if (suscripciones.length > 0) {
@@ -677,24 +675,23 @@ app.post('/api/pagos', async (req, res) => {
                 );
             } else {
                 await connection.execute(
-                    `INSERT INTO suscripciones (usuario_id, fecha_vencimiento, estado) VALUES (?, ?, 'activa')`,
+                    `INSERT INTO suscripciones (usuario_id, plan_id, fecha_inicio, fecha_vencimiento, estado) VALUES (?, 1, CURRENT_DATE(), ?, 'activa')`,
                     [usuario_id, fechaStr]
                 );
             }
 
-            // (Opcional) Si tenés una columna de estado en la tabla usuarios o alumnos, la actualizamos acá:
-            // Vi que en tu GET hacés JOIN con 'usuarios', así que asumo que tu tabla principal se llama usuarios.
+            // Actualizamos el estado general en la tabla usuarios
             await connection.execute(
                 'UPDATE usuarios SET estado_cuenta = "activa" WHERE id = ?', 
                 [usuario_id]
             );
         }
 
-        await connection.commit(); // Confirmamos todos los cambios juntos
+        await connection.commit(); 
         res.json({ success: true });
         
     } catch (error) {
-        if (connection) await connection.rollback(); // Si algo falla, deshacemos todo
+        if (connection) await connection.rollback(); 
         console.error("Error en pagos:", error);
         res.status(500).json({ error: 'Error interno' });
     } finally {
