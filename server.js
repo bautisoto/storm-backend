@@ -387,21 +387,32 @@ app.put('/api/alumnos/:id/estado', async (req, res) => {
 // --- Endpoint para las Estadísticas del DASHBOARD ---
 // =========================================================
 app.get('/api/dashboard/stats', async (req, res) => {
+    // 1. Recibimos el mes del frontend (Ej: '2026-08'). Si no viene, usamos el actual.
+    const mesSolicitado = req.query.mes || new Date().toISOString().substring(0, 7);
+    const [year, month] = mesSolicitado.split('-');
+
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
         
+        // --- MÉTRICAS DE SOCIOS (Se mantienen tus consultas originales) ---
         const [rsTotal] = await connection.execute("SELECT COUNT(*) as total FROM usuarios WHERE rol = 'alumno'");
         const [rsActivos] = await connection.execute("SELECT COUNT(DISTINCT usuario_id) as activos FROM suscripciones WHERE estado = 'activa'");
         
-        const queryCaja = `SELECT COALESCE(SUM(monto), 0) as total_ingresos FROM pagos_caja WHERE MONTH(fecha_pago) = MONTH(CURRENT_DATE()) AND YEAR(fecha_pago) = YEAR(CURRENT_DATE())`;
-        const [rsIngresos] = await connection.execute(queryCaja);
+        // --- ECONÓMICO (¡Ahora filtrado por el mes que elige Tomi!) ---
+        const queryCaja = `SELECT COALESCE(SUM(monto), 0) as total_ingresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ?`;
+        const [rsIngresos] = await connection.execute(queryCaja, [month, year]);
+        const ingresosMes = rsIngresos[0].total_ingresos;
+        
+        // Si más adelante sumás gastos a la BD, los conectamos acá. Por ahora va 0.
+        const gastosMes = 0; 
 
+        // --- GRÁFICO DE PLANES ---
         const queryGrafico = `SELECT p.nombre AS plan, COUNT(s.id) AS cantidad FROM planes p LEFT JOIN suscripciones s ON p.id = s.plan_id AND s.estado = 'activa' GROUP BY p.id, p.nombre ORDER BY cantidad DESC`;
         const [rsGrafico] = await connection.execute(queryGrafico);
 
-        let vencenPronto = 0;
-        let vencidos = 0;
+        // --- ALERTAS GLOBALES ---
+        let vencenPronto = 0; let vencidos = 0;
         try {
             const [rsVencen] = await connection.execute("SELECT COUNT(*) as total FROM suscripciones WHERE estado = 'activa' AND fecha_fin BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), INTERVAL 7 DAY)");
             vencenPronto = rsVencen[0].total;
@@ -409,18 +420,55 @@ app.get('/api/dashboard/stats', async (req, res) => {
             const [rsVencidosData] = await connection.execute("SELECT COUNT(DISTINCT usuario_id) as total FROM suscripciones WHERE estado = 'vencida'");
             vencidos = rsVencidosData[0].total;
         } catch (e) {}
-
         const sinAcceso = rsTotal[0].total - rsActivos[0].activos;
 
+        // --- NUEVO: OPERATIVO Y ENTRENAMIENTOS (Filtrado por mes) ---
+        const [clases] = await connection.execute(`SELECT COUNT(*) as total FROM clases WHERE DATE_FORMAT(fecha_hora, '%Y-%m') = ?`, [mesSolicitado]);
+        const [reservas] = await connection.execute(`
+            SELECT r.asistencia, COUNT(*) as cantidad FROM reservas r
+            JOIN clases c ON r.clase_id = c.id
+            WHERE DATE_FORMAT(c.fecha_hora, '%Y-%m') = ?
+            GROUP BY r.asistencia
+        `, [mesSolicitado]);
+
+        let totalReservas = 0; let totalPresentes = 0;
+        reservas.forEach(r => {
+            totalReservas += r.cantidad;
+            if (r.asistencia === 'presente') totalPresentes += r.cantidad;
+        });
+
+        // --- NUEVO: LISTA PARA LA TABLA DE MOROSOS ---
+        const [listaMorosos] = await connection.execute(`
+            SELECT u.id, u.nombre, u.apellido, u.telefono, u.plan_actual 
+            FROM usuarios u
+            JOIN suscripciones s ON u.id = s.usuario_id
+            WHERE s.estado = 'vencida'
+            GROUP BY u.id
+            ORDER BY u.apellido ASC
+        `);
+
+        // --- EMPAQUETAMOS TODO Y LO MANDAMOS AL FRONTEND ---
         res.json({
             totalSocios: rsTotal[0]?.total || 0,
             sociosActivos: rsActivos[0]?.activos || 0,
-            ingresosMes: rsIngresos[0]?.total_ingresos || 0,
+            finanzas: {
+                ingresos: ingresosMes,
+                gastos: gastosMes,
+                balance: ingresosMes - gastosMes
+            },
             graficoPlanes: rsGrafico,
-            alertas: { vencenPronto, vencidos, sinAcceso }
+            alertas: { vencenPronto, vencidos, sinAcceso },
+            operativo: {
+                clasesDictadas: clases[0].total || 0,
+                reservasTotales: totalReservas,
+                presentes: totalPresentes,
+                porcentajeAsistencia: totalReservas > 0 ? Math.round((totalPresentes / totalReservas) * 100) : 0
+            },
+            morosos: listaMorosos
         });
 
     } catch (error) {
+        console.error("🔴 Error en dashboard:", error);
         res.status(500).json({ error: 'Error interno' });
     } finally {
         if (connection) await connection.end();
