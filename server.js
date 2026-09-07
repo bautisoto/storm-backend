@@ -400,18 +400,18 @@ app.get('/api/dashboard/stats', async (req, res) => {
         const [rsActivos] = await connection.execute("SELECT COUNT(DISTINCT usuario_id) as activos FROM suscripciones WHERE estado = 'activa'");
         
         // ===============================================================
-        // --- ECONÓMICO (¡Acá estaba el error, ahora separa por tipo!) ---
+        // --- ECONÓMICO
         // ===============================================================
         
-        // 1. Sumamos SOLO los ingresos
-        const queryIngresos = `SELECT COALESCE(SUM(monto), 0) as total_ingresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ? AND tipo = 'ingreso'`;
+        // 1. Sumamos SOLO los ingresos (ABS fuerza a que siempre sume para arriba)
+        const queryIngresos = `SELECT COALESCE(SUM(ABS(monto)), 0) as total_ingresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ? AND tipo = 'ingreso'`;
         const [rsIngresos] = await connection.execute(queryIngresos, [month, year]);
-        const ingresosMes = rsIngresos[0].total_ingresos;
+        const ingresosMes = Number(rsIngresos[0].total_ingresos);
         
-        // 2. Sumamos SOLO los egresos (Gastos)
-        const queryEgresos = `SELECT COALESCE(SUM(monto), 0) as total_egresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ? AND tipo = 'egreso'`;
+        // 2. Sumamos SOLO los egresos (ABS fuerza a que la tarjeta de gastos siempre crezca en positivo)
+        const queryEgresos = `SELECT COALESCE(SUM(ABS(monto)), 0) as total_egresos FROM pagos_caja WHERE MONTH(fecha_pago) = ? AND YEAR(fecha_pago) = ? AND tipo = 'egreso'`;
         const [rsEgresos] = await connection.execute(queryEgresos, [month, year]);
-        const gastosMes = rsEgresos[0].total_egresos;
+        const gastosMes = Number(rsEgresos[0].total_egresos);
 
         // --- GRÁFICO DE PLANES ---
         const queryGrafico = `SELECT p.nombre AS plan, COUNT(s.id) AS cantidad FROM planes p LEFT JOIN suscripciones s ON p.id = s.plan_id AND s.estado = 'activa' GROUP BY p.id, p.nombre ORDER BY cantidad DESC`;
