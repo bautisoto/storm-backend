@@ -383,6 +383,7 @@ app.put('/api/alumnos/:id/estado', async (req, res) => {
     }
 });
 
+
 // =========================================================
 // --- Endpoint para las Estadísticas del DASHBOARD ---
 // =========================================================
@@ -1241,6 +1242,23 @@ app.get('/api/alumnos/:id/asistencia', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// Actualizar la RUTINA COMPLETA del alumno en su columna
+app.put('/api/alumnos/:id/rutina', async (req, res) => {
+    const id = req.params.id;
+    const { rutina_json } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(`UPDATE usuarios SET rutina = ? WHERE id = ?`, [rutina_json, id]);
+        res.json({ message: 'Rutina asignada correctamente' });
+    } catch (error) {
+        console.error('Error al asignar rutina:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     } finally {
         if (connection) await connection.end();
     }
