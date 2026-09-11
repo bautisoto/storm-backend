@@ -1264,6 +1264,25 @@ app.put('/api/alumnos/:id/rutina', async (req, res) => {
     }
 });
 
+// Crear un nuevo ejercicio en el catálogo global
+app.post('/api/catalogo-ejercicios', async (req, res) => {
+    const { nombre, grupo_muscular, url_video, url_imagen } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(
+            `INSERT INTO catalogo_ejercicios (nombre, grupo_muscular, url_video, url_imagen) VALUES (?, ?, ?, ?)`, 
+            [nombre, grupo_muscular || null, url_video || null, url_imagen || null]
+        );
+        res.json({ message: 'Ejercicio creado exitosamente' });
+    } catch (error) {
+        console.error('Error creando ejercicio:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
