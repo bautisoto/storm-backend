@@ -999,7 +999,7 @@ app.put('/api/rutinas/:id', async (req, res) => {
     }
 });
 
-// Ruta para mandar los mails masivos
+// Ruta para mandar los mails masivos (Actualizada a BREVO API para saltar bloqueo de Render)
 app.post('/api/comunicaciones/enviar', async (req, res) => {
     const { destinatarios, asunto, cuerpo } = req.body;
 
@@ -1008,21 +1008,44 @@ app.post('/api/comunicaciones/enviar', async (req, res) => {
     }
 
     try {
-        // Ejecutamos el envío de correos a todos en paralelo
-        const promesas = destinatarios.map(email => {
-            return transporter.sendMail({
-                from: '"STORM Gym" <comunicaciones.storm@gmail.com>', // Tiene que ser el mismo mail de arriba
-                to: email,
-                subject: asunto,
-                text: cuerpo
-            });
+        // Formateamos los correos para la API de Brevo en "Copia Oculta" (bcc)
+        const listaBcc = destinatarios.map(email => ({ email: email }));
+
+        const payload = {
+            sender: {
+                name: "STORM Training",
+                email: "comunicaciones.storm@gmail.com" // El mail que valide en la cuenta de Brevo
+            },
+            bcc: listaBcc,
+            subject: asunto,
+            // Brevo soporta HTML, así que le ponemos un diseño básico y respetamos los saltos de línea
+            htmlContent: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 16px; color: #333; line-height: 1.6;">
+                            ${cuerpo.replace(/\n/g, '<br>')}
+                          </div>`
+        };
+
+        // Disparamos la petición a la API de Brevo (Puerto 443 web, inbloqueable por Render)
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'accept': 'application/json',
+                'api-key': process.env.BREVO_API_KEY,
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify(payload)
         });
 
-        await Promise.all(promesas);
-        res.json({ mensaje: '¡Todos los correos fueron enviados con éxito!' });
+        if (response.ok) {
+            console.log("¡Correos enviados con éxito vía Brevo!");
+            res.json({ mensaje: '¡Todos los correos fueron enviados con éxito!' });
+        } else {
+            const errorData = await response.json();
+            console.error('Error interno de Brevo:', errorData);
+            res.status(500).json({ error: 'Brevo rechazó el envío de correos.' });
+        }
     } catch (error) {
         console.error('Error enviando correos:', error);
-        res.status(500).json({ error: 'Fallo al enviar algunos correos.' });
+        res.status(500).json({ error: 'El servidor no pudo conectarse con la API de correos.' });
     }
 });
 
