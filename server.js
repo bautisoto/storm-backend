@@ -6,10 +6,13 @@ const nodemailer = require('nodemailer');
 
 // Configuramos el "Cartero" con la cuenta de Gmail del gimnasio
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    family: 4, // <--- LA MAGIA: Esto obliga a Node a usar la red clásica IPv4 que Render sí soporta
     auth: {
-        user: 'comunicaciones.storm@gmail.com', // Poner el mail oficial acá
-        pass: 'azokqmlfmjppodug' // Poner las 16 letras sin espacios
+        user: 'comunicaciones.storm@gmail.com',
+        pass: 'azokqmlfmjppodug' 
     }
 });
 
