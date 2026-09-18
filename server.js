@@ -800,6 +800,64 @@ app.post('/api/clases', async (req, res) => {
     }
 });
 
+// CREAR CLASE (Repetición automática por 1 año - 52 semanas)
+app.post('/api/clases', async (req, res) => {
+    const { titulo, profe_id, fecha_hora, cupo_maximo } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // Magia pura: Forzamos la repetición a 52 semanas
+        const repeticiones = 52; 
+        const fechaBase = new Date(fecha_hora);
+
+        for (let i = 0; i < repeticiones; i++) {
+            // Clonamos la fecha y le sumamos 7 días por cada vuelta
+            const nuevaFecha = new Date(fechaBase);
+            nuevaFecha.setDate(fechaBase.getDate() + (i * 7));
+            
+            // Formateo estricto para MySQL ('YYYY-MM-DD HH:MM:00')
+            const pad = (n) => n.toString().padStart(2, '0');
+            const fechaMySQL = `${nuevaFecha.getFullYear()}-${pad(nuevaFecha.getMonth()+1)}-${pad(nuevaFecha.getDate())} ${pad(nuevaFecha.getHours())}:${pad(nuevaFecha.getMinutes())}:00`;
+
+            const query = `INSERT INTO clases (titulo, profe_id, fecha_hora, cupo_maximo) VALUES (?, ?, ?, ?)`;
+            await connection.execute(query, [titulo, profe_id || 1, fechaMySQL, cupo_maximo || 15]);
+        }
+
+        res.json({ success: true, mensaje: `¡Se creó la clase para todo el año (52 semanas)!` });
+    } catch (error) {
+        console.error("Error al crear clase(s):", error);
+        res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// ELIMINAR UNA CLASE (Y sus reservas)
+app.delete('/api/clases/:id', async (req, res) => {
+    const claseId = req.params.id;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction(); // Empezamos transacción segura
+
+        // 1. Borramos las reservas de esa clase para que no queden datos huérfanos
+        await connection.execute('DELETE FROM reservas WHERE clase_id = ?', [claseId]);
+
+        // 2. Borramos la clase definitiva
+        await connection.execute('DELETE FROM clases WHERE id = ?', [claseId]);
+
+        await connection.commit();
+        res.json({ success: true, mensaje: 'Clase eliminada para siempre.' });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error("Error al eliminar clase:", error);
+        res.status(500).json({ error: 'Error interno al borrar la clase' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // ---------------------------------------------------------
 // RUTAS DE ASISTENCIA Y CUPOS (LAS QUE FALTABAN)
 // ---------------------------------------------------------
