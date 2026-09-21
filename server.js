@@ -1384,33 +1384,41 @@ app.put('/api/alumnos/:id/token', async (req, res) => {
     }
 });
 
-// --- ENVIAR NOTIFICACIONES PUSH A TODOS LOS ALUMNOS ---
+// --- ENVIAR NOTIFICACIONES PUSH (VERSIÓN SEGMENTADA) ---
 app.post('/api/notificaciones', async (req, res) => {
-    const { titulo, mensaje } = req.body;
+    const { titulo, mensaje, ids } = req.body;
     let connection;
     
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // 1. Buscamos todos los tokens válidos en la base de datos
-        const [usuarios] = await connection.execute('SELECT push_token FROM usuarios WHERE push_token IS NOT NULL AND push_token != ""');
+        // Si no hay IDs filtrados, cortamos la ejecución
+        if (!ids || ids.length === 0) {
+            return res.json({ success: false, mensaje: 'No hay destinatarios.' });
+        }
+        
+        // Creamos los signos de interrogación dinámicos (?, ?, ?) para MySQL
+        const placeholders = ids.map(() => '?').join(',');
+        
+        // Buscamos solo los tokens de los alumnos que Tomi filtró en la web
+        const query = `SELECT push_token FROM usuarios WHERE id IN (${placeholders}) AND push_token IS NOT NULL AND push_token != ""`;
+        const [usuarios] = await connection.execute(query, ids);
         
         if (usuarios.length === 0) {
-            return res.json({ success: false, mensaje: 'Aún no hay alumnos con la App instalada para recibir notificaciones.' });
+            return res.json({ success: false, mensaje: 'Ninguno de estos alumnos tiene la app instalada aún.' });
         }
 
-        // 2. Armamos el "paquete" de mensajes tal cual lo exige Expo
+        // Armamos el paquete para Expo
         const mensajesExpo = usuarios.map(u => ({
             to: u.push_token,
             sound: 'default',
             title: titulo,
             body: mensaje,
-            data: { accion: 'abrir_app' } // Le decimos que abra la app al tocarla
+            data: { accion: 'abrir_app' }
         }));
 
-        // 3. ¡Disparamos el mensaje masivo a los servidores de Expo!
-        // (Expo se encarga de hablar con Apple y Google por nosotros)
-        const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
+        // Disparamos a los celulares
+        await fetch('https://exp.host/--/api/v2/push/send', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
@@ -1420,11 +1428,11 @@ app.post('/api/notificaciones', async (req, res) => {
             body: JSON.stringify(mensajesExpo)
         });
 
-        res.json({ success: true, mensaje: `¡Notificación enviada a ${usuarios.length} dispositivos al instante!` });
+        res.json({ success: true, mensaje: `Push enviado a ${usuarios.length} dispositivos.` });
 
     } catch (error) {
-        console.error("Error al enviar notificaciones:", error);
-        res.status(500).json({ error: 'Error interno del servidor al intentar enviar el Push.' });
+        console.error("Error al enviar Push:", error);
+        res.status(500).json({ error: 'Error interno del servidor.' });
     } finally {
         if (connection) await connection.end();
     }
