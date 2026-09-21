@@ -1384,6 +1384,52 @@ app.put('/api/alumnos/:id/token', async (req, res) => {
     }
 });
 
+// --- ENVIAR NOTIFICACIONES PUSH A TODOS LOS ALUMNOS ---
+app.post('/api/notificaciones', async (req, res) => {
+    const { titulo, mensaje } = req.body;
+    let connection;
+    
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // 1. Buscamos todos los tokens válidos en la base de datos
+        const [usuarios] = await connection.execute('SELECT push_token FROM usuarios WHERE push_token IS NOT NULL AND push_token != ""');
+        
+        if (usuarios.length === 0) {
+            return res.json({ success: false, mensaje: 'Aún no hay alumnos con la App instalada para recibir notificaciones.' });
+        }
+
+        // 2. Armamos el "paquete" de mensajes tal cual lo exige Expo
+        const mensajesExpo = usuarios.map(u => ({
+            to: u.push_token,
+            sound: 'default',
+            title: titulo,
+            body: mensaje,
+            data: { accion: 'abrir_app' } // Le decimos que abra la app al tocarla
+        }));
+
+        // 3. ¡Disparamos el mensaje masivo a los servidores de Expo!
+        // (Expo se encarga de hablar con Apple y Google por nosotros)
+        const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Accept-encoding': 'gzip, deflate',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(mensajesExpo)
+        });
+
+        res.json({ success: true, mensaje: `¡Notificación enviada a ${usuarios.length} dispositivos al instante!` });
+
+    } catch (error) {
+        console.error("Error al enviar notificaciones:", error);
+        res.status(500).json({ error: 'Error interno del servidor al intentar enviar el Push.' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
