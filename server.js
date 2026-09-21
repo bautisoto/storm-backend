@@ -1367,6 +1367,23 @@ app.post('/api/catalogo-ejercicios', async (req, res) => {
     }
 });
 
+// --- GUARDAR PUSH TOKEN DEL DISPOSITIVO ---
+app.put('/api/alumnos/:id/token', async (req, res) => {
+    const { id } = req.params;
+    const { token } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute('UPDATE usuarios SET push_token = ? WHERE id = ?', [token, id]);
+        res.json({ success: true, mensaje: 'Token guardado' });
+    } catch (error) {
+        console.error("Error al guardar token:", error);
+        res.status(500).json({ error: 'Error interno' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
