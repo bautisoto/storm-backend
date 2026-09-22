@@ -3,6 +3,7 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
+const cron = require('node-cron');
 
 // Configuramos el "Cartero" con la cuenta de Gmail del gimnasio
 const transporter = nodemailer.createTransport({
@@ -194,32 +195,32 @@ app.post('/api/reservas', async (req, res) => {
     }
 });
 
-// Cancelar Reserva
+// --- CANCELAR RESERVA (Y DEVOLVER EL CUPO AL ALUMNO) ---
 app.delete('/api/reservas', async (req, res) => {
     const { usuario_id, clase_id } = req.body;
-
-    if (!usuario_id || !clase_id) {
-        return res.status(400).json({ error: 'Faltan datos para cancelar' });
-    }
-
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
         
+        // 1. Borramos la reserva de la tabla
         const [resultado] = await connection.execute(
             'DELETE FROM reservas WHERE usuario_id = ? AND clase_id = ?', 
             [usuario_id, clase_id]
         );
-
-        if (resultado.affectedRows === 0) {
-            return res.status(400).json({ error: 'No tenías una reserva en esta clase' });
+        
+        if (resultado.affectedRows > 0) {
+            // 2. LA SOLUCIÓN: Le devolvemos la clase que gastó sumándole 1 a sus clases restantes
+            await connection.execute(
+                'UPDATE suscripciones SET clases_restantes = clases_restantes + 1 WHERE usuario_id = ?', 
+                [usuario_id]
+            );
+            res.json({ success: true, mensaje: 'Reserva cancelada. Clase devuelta al abono.' });
+        } else {
+            res.status(404).json({ error: 'No se encontró la reserva.' });
         }
-
-        res.json({ mensaje: 'Reserva cancelada, cupo liberado.' });
-
     } catch (error) {
-        console.error('Error al cancelar:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        console.error("Error al cancelar reserva:", error);
+        res.status(500).json({ error: 'Error del servidor al intentar cancelar.' });
     } finally {
         if (connection) await connection.end();
     }
@@ -1458,6 +1459,55 @@ app.post('/api/notificaciones', async (req, res) => {
     } catch (error) {
         console.error("Error al enviar Push:", error);
         res.status(500).json({ error: 'Error interno del servidor.' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// =========================================================================
+// 🤖 ROBOT AUTOMÁTICO DE NOTIFICACIONES (Se ejecuta 00:01 AM)
+// =========================================================================
+cron.schedule('1 0 * * *', async () => {
+    console.log('🤖 ROBOT STORM: Revisando vencimientos para enviar avisos...');
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // Buscamos SOLO a los que se les venció exactamente AYER 
+        // (Para mandarles el aviso 1 sola vez y no spamearlos todos los días)
+        const [morosos] = await connection.execute(`
+            SELECT u.id, u.push_token, s.fecha_vencimiento 
+            FROM usuarios u 
+            JOIN suscripciones s ON u.id = s.usuario_id 
+            WHERE DATE(s.fecha_vencimiento) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+        `);
+
+        if (morosos.length > 0) {
+            // Filtramos a los que tienen la app instalada y un token válido
+            const tokensValidos = morosos.filter(m => m.push_token && m.push_token.includes('ExponentPushToken'));
+            
+            if (tokensValidos.length > 0) {
+                const mensajesExpo = tokensValidos.map(m => ({
+                    to: m.push_token,
+                    sound: 'default',
+                    title: '⚡ STORM: Membresía Vencida',
+                    body: 'Tu abono ha finalizado. Pasá por recepción cuando vengas a entrenar para renovarlo.',
+                    data: { accion: 'abrir_pagos' }
+                }));
+
+                // Disparamos el envío masivo a través de Expo
+                await fetch('https://exp.host/--/api/v2/push/send', {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify(mensajesExpo)
+                });
+            }
+            console.log(`🤖 Operación exitosa: Se enviaron avisos de vencimiento a ${tokensValidos.length} alumnos.`);
+        } else {
+            console.log('🤖 Todo en orden. Ningún abono se venció ayer.');
+        }
+    } catch (error) {
+        console.error('Error en el Robot Automático:', error);
     } finally {
         if (connection) await connection.end();
     }
