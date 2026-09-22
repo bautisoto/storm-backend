@@ -107,6 +107,31 @@ app.get('/api/perfil/:id', async (req, res) => {
     }
 });
 
+// --- OBTENER ESCANEOS/ACCESOS DE HOY (EN VIVO) ---
+app.get('/api/accesos/hoy', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        // Buscamos los que dieron presente hoy, ordenados por los más recientes
+        // Si tu base de datos tiene una columna de hora de modificación, genial. Si no, ordenamos por ID.
+        const [accesos] = await connection.execute(`
+            SELECT r.id as reserva_id, r.fecha_reserva, u.id as usuario_id, u.nombre, u.apellido, u.dni, u.estado_cuenta, c.titulo as clase_titulo
+            FROM reservas r 
+            JOIN usuarios u ON r.usuario_id = u.id 
+            JOIN clases c ON r.clase_id = c.id
+            WHERE DATE(r.fecha_reserva) = CURDATE() AND r.asistencia = 'presente'
+            ORDER BY r.id DESC
+            LIMIT 15
+        `);
+        res.json(accesos);
+    } catch (error) {
+        console.error("Error al obtener accesos de hoy:", error);
+        res.status(500).json({ error: 'Error al obtener los accesos' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // =========================================================
 // --- Endpoints de Reservas de Clases ---
 // =========================================================
