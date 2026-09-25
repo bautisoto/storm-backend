@@ -1551,6 +1551,29 @@ app.post('/api/accesos', async (req, res) => {
     }
 });
 
+// --- ACTUALIZAR EJERCICIOS DESDE LA APP (Lapicito) ---
+app.put('/api/planificacion/:id', async (req, res) => {
+    const planId = req.params.id;
+    const { nombre_bloque } = req.body; // Este es el bloque (JSON) con los nuevos kilos/reps
+
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(`
+            UPDATE planificacion 
+            SET nombre_bloque = ?
+            WHERE id = ?
+        `, [nombre_bloque, planId]);
+        
+        res.json({ success: true, mensaje: 'Rutina actualizada correctamente' });
+    } catch (error) {
+        console.error("Error al guardar la edición de la rutina:", error);
+        res.status(500).json({ error: 'Error al actualizar en la base de datos' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
