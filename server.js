@@ -1513,6 +1513,44 @@ cron.schedule('1 0 * * *', async () => {
     }
 });
 
+// --- REGISTRAR INGRESO / CHECK-IN (Desde el QR de la App) ---
+app.post('/api/accesos', async (req, res) => {
+    const { usuario_id } = req.body;
+    let connection;
+    
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // 1. Buscamos si el alumno tiene alguna reserva para el día de HOY
+        const [reservasHoy] = await connection.execute(`
+            SELECT r.id, c.titulo 
+            FROM reservas r
+            JOIN clases c ON r.clase_id = c.id
+            WHERE r.usuario_id = ? AND DATE(c.fecha_hora) = CURDATE()
+            ORDER BY c.fecha_hora ASC LIMIT 1
+        `, [usuario_id]);
+
+        if (reservasHoy.length > 0) {
+            const idReserva = reservasHoy[0].id;
+            
+            // 2. Le ponemos el "presente" en la base de datos
+            await connection.execute(`
+                UPDATE reservas SET asistencia = 'presente' WHERE id = ?
+            `, [idReserva]);
+            
+            res.json({ success: true, mensaje: 'Presente registrado correctamente.' });
+        } else {
+            // Si escanea el QR pero no sacó turno, le bloqueamos el paso
+            res.status(400).json({ error: 'No tenés ningún turno reservado para el día de hoy.' });
+        }
+    } catch (error) {
+        console.error("Error en check-in QR:", error);
+        res.status(500).json({ error: 'Error del servidor al leer el código QR.' });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
