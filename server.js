@@ -1574,6 +1574,47 @@ app.put('/api/planificacion/:id', async (req, res) => {
     }
 });
 
+// =========================================================================
+// 📝 SISTEMA DE FEEDBACK Y CUESTIONARIOS (Semanal / Mensual)
+// =========================================================================
+
+// 1. Obtener los formularios disponibles (Para mostrarlos en la App y en el Panel)
+app.get('/api/formularios', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const [formularios] = await connection.execute('SELECT * FROM formularios_feedback');
+        res.json(formularios);
+    } catch (error) {
+        console.error("Error al obtener formularios:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// 2. Guardar las respuestas que manda el alumno desde la App
+app.post('/api/respuestas-feedback', async (req, res) => {
+    const { usuario_id, formulario_id, respuestas } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // Guardamos todo el paquete de respuestas en formato JSON
+        await connection.execute(`
+            INSERT INTO respuestas_feedback (usuario_id, formulario_id, respuestas)
+            VALUES (?, ?, ?)
+        `, [usuario_id, formulario_id, JSON.stringify(respuestas)]);
+        
+        res.json({ success: true, mensaje: 'Feedback enviado correctamente. ¡Gracias!' });
+    } catch (error) {
+        console.error("Error al guardar feedback:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
