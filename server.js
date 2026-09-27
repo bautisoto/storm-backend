@@ -1615,6 +1615,29 @@ app.post('/api/respuestas-feedback', async (req, res) => {
     }
 });
 
+// 3. ACTUALIZAR UN FORMULARIO (Guardar edición de preguntas del Admin)
+app.put('/api/formularios/:id', async (req, res) => {
+    const formId = req.params.id;
+    const { preguntas } = req.body; 
+    
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(`
+            UPDATE formularios_feedback 
+            SET preguntas = ? 
+            WHERE id = ?
+        `, [preguntas, formId]);
+        
+        res.json({ success: true, mensaje: 'Formulario actualizado correctamente.' });
+    } catch (error) {
+        console.error("Error al actualizar formulario:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
