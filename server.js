@@ -1560,7 +1560,7 @@ app.put('/api/planificacion/:id', async (req, res) => {
     try {
         connection = await mysql.createConnection(dbConfig);
         await connection.execute(`
-            UPDATE planificacion 
+            UPDATE planificacion_rutinas 
             SET nombre_bloque = ?
             WHERE id = ?
         `, [nombre_bloque, planId]);
