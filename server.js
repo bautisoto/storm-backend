@@ -1638,6 +1638,29 @@ app.put('/api/formularios/:id', async (req, res) => {
     }
 });
 
+// 4. LEER LAS RESPUESTAS (Para la web del Admin)
+app.get('/api/respuestas-feedback/:formId', async (req, res) => {
+    const formId = req.params.formId;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        // Traemos las respuestas unidas con el nombre y apellido del usuario
+        const [respuestas] = await connection.execute(`
+            SELECT r.*, u.nombre, u.apellido 
+            FROM respuestas_feedback r
+            JOIN usuarios u ON r.usuario_id = u.id
+            WHERE r.formulario_id = ?
+            ORDER BY r.fecha DESC
+        `, [formId]);
+        res.json(respuestas);
+    } catch (error) {
+        console.error("Error buscando respuestas:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
 // --- Inicialización del Servidor ---
 app.listen(PORT, () => {
     console.log(`🔥 Servidor backend corriendo en http://localhost:${PORT}`);
