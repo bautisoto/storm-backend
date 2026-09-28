@@ -666,6 +666,83 @@ app.get('/api/accesos/filtrar', async (req, res) => {
     }
 });
 
+// =========================================================
+// --- Endpoints para PLANES Y ABONOS ---
+// =========================================================
+
+// 1. Obtener todos los planes (con contador de socios activos)
+app.get('/api/planes', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        const query = `
+            SELECT p.*, 
+            (SELECT COUNT(*) FROM suscripciones s WHERE s.plan_id = p.id AND s.estado = 'activa') as socios_activos
+            FROM planes p
+            ORDER BY p.precio_actual ASC
+        `;
+        const [planes] = await connection.execute(query);
+        res.json(planes);
+    } catch (error) { 
+        res.status(500).json({ error: 'Error al obtener planes' }); 
+    } finally { 
+        if (connection) await connection.end(); 
+    }
+});
+
+// 2. Crear un nuevo plan
+app.post('/api/planes', async (req, res) => {
+    const { nombre, descripcion, cant_clases, duracion_meses, precio_actual, limite_semanal, auto_renovacion } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(
+            'INSERT INTO planes (nombre, descripcion, cant_clases, duracion_meses, precio_actual, limite_semanal, auto_renovacion) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [nombre, descripcion || '', cant_clases || 0, duracion_meses || 1, precio_actual || 0, limite_semanal || 0, auto_renovacion]
+        );
+        res.json({ success: true, mensaje: 'Plan creado con éxito' });
+    } catch (error) { 
+        res.status(500).json({ error: 'Error al crear plan' }); 
+    } finally { 
+        if (connection) await connection.end(); 
+    }
+});
+
+// 3. Editar un plan existente
+app.put('/api/planes/:id', async (req, res) => {
+    const id = req.params.id;
+    const { nombre, descripcion, cant_clases, duracion_meses, precio_actual, limite_semanal, auto_renovacion } = req.body;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(
+            'UPDATE planes SET nombre=?, descripcion=?, cant_clases=?, duracion_meses=?, precio_actual=?, limite_semanal=?, auto_renovacion=? WHERE id=?',
+            [nombre, descripcion || '', cant_clases || 0, duracion_meses || 1, precio_actual || 0, limite_semanal || 0, auto_renovacion, id]
+        );
+        res.json({ success: true, mensaje: 'Plan actualizado' });
+    } catch (error) { 
+        res.status(500).json({ error: 'Error al editar plan' }); 
+    } finally { 
+        if (connection) await connection.end(); 
+    }
+});
+
+// 4. Eliminar un plan
+app.delete('/api/planes/:id', async (req, res) => {
+    const id = req.params.id;
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute('UPDATE suscripciones SET plan_id = NULL WHERE plan_id = ?', [id]);
+        await connection.execute('DELETE FROM planes WHERE id = ?', [id]);
+        res.json({ success: true, mensaje: 'Plan eliminado' });
+    } catch (error) { 
+        res.status(500).json({ error: 'Error al eliminar plan' }); 
+    } finally { 
+        if (connection) await connection.end(); 
+    }
+});
+
 
 
 // =========================================================
@@ -1514,7 +1591,7 @@ cron.schedule('1 0 * * *', async () => {
 });
 
 // --- REGISTRAR INGRESO / CHECK-IN (Desde el QR de la App) ---
-app.post('/api/accesos', async (req, res) => {
+app.post('/api/accesos/qr', async (req, res) => {
     const { usuario_id } = req.body;
     let connection;
     
@@ -1655,6 +1732,31 @@ app.get('/api/respuestas-feedback/:formId', async (req, res) => {
         res.json(respuestas);
     } catch (error) {
         console.error("Error buscando respuestas:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// =========================================================================
+// 👤 GUARDAR PERFIL FÍSICO (ONBOARDING OPCIONAL)
+// =========================================================================
+app.put('/api/usuarios/:id/perfil-fisico', async (req, res) => {
+    const usuarioId = req.params.id;
+    const { perfil_fisico } = req.body; // Esto va a ser un JSON con las respuestas
+
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        await connection.execute(`
+            UPDATE usuarios 
+            SET perfil_fisico = ? 
+            WHERE id = ?
+        `, [JSON.stringify(perfil_fisico), usuarioId]);
+        
+        res.json({ success: true, mensaje: 'Perfil físico actualizado correctamente.' });
+    } catch (error) {
+        console.error("Error al guardar perfil físico:", error);
         res.status(500).json({ error: error.message });
     } finally {
         if (connection) await connection.end();
