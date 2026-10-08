@@ -1267,7 +1267,7 @@ app.get('/api/alumnos/:id/planificacion', async (req, res) => {
     }
 });
 
-// 2. GUARDAR la nueva planificación
+// 2. GUARDAR y CLONAR la nueva planificación (Magia Mensual)
 app.post('/api/alumnos/:id/planificacion', async (req, res) => {
     const usuario_id = req.params.id;
     const { planificacion, fechaMin, fechaMax } = req.body;
@@ -1275,22 +1275,33 @@ app.post('/api/alumnos/:id/planificacion', async (req, res) => {
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // Magia: Borramos solo lo que estaba en este rango de fechas para no duplicar si el profe mueve un bloque
+        // 1. Borramos lo de la semana seleccionada para no duplicar si Tomi edita
         await connection.execute(
             'DELETE FROM planificacion_rutinas WHERE usuario_id = ? AND fecha_asignada BETWEEN ? AND ?',
             [usuario_id, fechaMin, fechaMax]
         );
 
-        // Insertamos los bloques nuevos que nos mandó el Frontend
+        // 2. Insertamos la rutina y la CLONAMOS por 4 semanas hacia el futuro
         if (planificacion && planificacion.length > 0) {
             for (let bloque of planificacion) {
-                await connection.execute(
-                    'INSERT INTO planificacion_rutinas (usuario_id, fecha_asignada, nombre_bloque) VALUES (?, ?, ?)',
-                    [usuario_id, bloque.fecha_asignada, bloque.nombre_bloque]
-                );
+                const fechaBase = new Date(bloque.fecha_asignada);
+                
+                // Loop x4 para clonarla hoy, en 7 días, en 14 días y en 21 días
+                for(let i = 0; i < 4; i++) {
+                    const fechaCopia = new Date(fechaBase);
+                    fechaCopia.setDate(fechaCopia.getDate() + (i * 7));
+                    
+                    // Formato YYYY-MM-DD para MySQL
+                    const fechaStr = fechaCopia.toISOString().split('T')[0];
+
+                    await connection.execute(
+                        'INSERT IGNORE INTO planificacion_rutinas (usuario_id, fecha_asignada, nombre_bloque) VALUES (?, ?, ?)',
+                        [usuario_id, fechaStr, bloque.nombre_bloque]
+                    );
+                }
             }
         }
-        res.json({ success: true, mensaje: "Planificación guardada" });
+        res.json({ success: true, mensaje: "Planificación fija asignada por todo el mes." });
     } catch (error) {
         console.error("Error guardando planificación:", error);
         res.status(500).json({ error: 'Error interno al guardar' });
