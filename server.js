@@ -1267,41 +1267,35 @@ app.get('/api/alumnos/:id/planificacion', async (req, res) => {
     }
 });
 
-// 2. GUARDAR y CLONAR la nueva planificación (MAGIA ANUAL INTELIGENTE)
+// 2. GUARDAR y CLONAR la nueva planificación (CON REPETICIÓN A ELECCIÓN)
 app.post('/api/alumnos/:id/planificacion', async (req, res) => {
     const usuario_id = req.params.id;
-    const { planificacion, fechaMin, fechaMax } = req.body;
+    // Ahora recibimos "repeticiones" desde el frontend
+    const { planificacion, fechaMin, fechaMax, repeticiones } = req.body; 
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // 1. Calculamos inteligentemente el patrón que armó Tomi (Día, Semana o Mes)
         const msPorDia = 1000 * 60 * 60 * 24;
         const diasCiclo = Math.round((new Date(fechaMax) - new Date(fechaMin)) / msPorDia) + 1;
         
-        // 2. Calculamos cuántas veces entra ese patrón en 1 año (365 días)
-        const repeticiones = Math.ceil(365 / diasCiclo);
+        // Usamos el número que eligió Tomi, si falla por algo, lo seteamos en 1 (solo la semana)
+        const vueltas = repeticiones ? parseInt(repeticiones) : 1;
 
-        // 3. Borramos TODO el futuro desde el primer día que está editando. 
-        // Así, si edita algo a mitad de año, no borra el historial pasado, pero pisa el futuro.
+        // Borramos el futuro desde el primer día que está editando
         await connection.execute(
             'DELETE FROM planificacion_rutinas WHERE usuario_id = ? AND fecha_asignada >= ?',
             [usuario_id, fechaMin]
         );
 
-        // 4. Guardamos y clonamos
         if (planificacion && planificacion.length > 0) {
             for (let bloque of planificacion) {
-                
-                // Forzamos el mediodía (T12:00:00Z) para que los cambios de zona horaria 
-                // no atrasen la rutina un día para atrás al clonarla.
                 const fechaBaseStr = bloque.fecha_asignada; 
                 
-                for(let i = 0; i < repeticiones; i++) {
+                for(let i = 0; i < vueltas; i++) {
                     const fechaCopia = new Date(fechaBaseStr + 'T12:00:00Z'); 
                     fechaCopia.setDate(fechaCopia.getDate() + (i * diasCiclo));
                     
-                    // Lo volvemos a armar en formato YYYY-MM-DD para la base de datos
                     const y = fechaCopia.getFullYear();
                     const m = String(fechaCopia.getMonth() + 1).padStart(2, '0');
                     const d = String(fechaCopia.getDate()).padStart(2, '0');
@@ -1314,9 +1308,9 @@ app.post('/api/alumnos/:id/planificacion', async (req, res) => {
                 }
             }
         }
-        res.json({ success: true, mensaje: "¡Rutina fija asignada para todo el año!" });
+        res.json({ success: true, mensaje: "¡Planificación guardada con éxito!" });
     } catch (error) {
-        console.error("Error guardando planificación:", error);
+        console.error("Error guardando:", error);
         res.status(500).json({ error: 'Error interno al guardar' });
     } finally {
         if (connection) await connection.end();
