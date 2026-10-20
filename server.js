@@ -1619,27 +1619,34 @@ app.post('/api/accesos/qr', async (req, res) => {
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // Buscamos la reserva más cercana de este usuario (Ignorando la hora exacta para evitar errores de UTC)
+        // 1. Buscamos la clase de HOY de este alumno. 
+        // Usamos ABS(TIMESTAMPDIFF...) para que, si tiene 2 clases hoy, le marque el presente a la del horario más cercano.
         const [reservas] = await connection.execute(`
             SELECT r.id, c.titulo, c.fecha_hora
             FROM reservas r
             JOIN clases c ON r.clase_id = c.id
-            WHERE r.usuario_id = ? AND DATE(c.fecha_hora) >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)
-            ORDER BY c.fecha_hora ASC LIMIT 1
+            WHERE r.usuario_id = ? AND DATE(c.fecha_hora) = CURDATE()
+            ORDER BY ABS(TIMESTAMPDIFF(MINUTE, c.fecha_hora, NOW())) ASC 
+            LIMIT 1
         `, [usuario_id]);
 
         if (reservas.length > 0) {
             const idReserva = reservas[0].id;
             
-            // Marcamos el presente en la base de datos
+            // 2. MAGIA: Le clavamos el PRESENTE en el calendario de Tomi
             await connection.execute(`
                 UPDATE reservas SET asistencia = 'presente' WHERE id = ?
             `, [idReserva]);
             
-            res.json({ success: true, mensaje: 'Presente registrado correctamente.' });
+            // 3. Lo anotamos en el historial de Recepción para que suene el "Ding!" en la web
+            await connection.execute(`
+                INSERT INTO accesos (usuario_id, fecha_hora, estado, notas) 
+                VALUES (?, NOW(), 'permitido', 'Ingreso por QR App')
+            `, [usuario_id]);
+            
+            res.json({ success: true, mensaje: 'Presente registrado en el calendario.' });
         } else {
-            // Si no tiene ningún turno en estos días, le avisamos bien
-            res.status(400).json({ error: 'No tenés ningún turno reservado para hoy. Por favor, anotate en la sección Clases.' });
+            res.status(400).json({ error: 'No tenés ningún turno reservado para hoy.' });
         }
     } catch (error) {
         console.error("Error en check-in QR:", error);
