@@ -151,7 +151,7 @@ app.post('/api/reservas', async (req, res) => {
             SELECT p.cant_clases 
             FROM suscripciones s 
             JOIN planes p ON s.plan_id = p.id 
-            WHERE s.usuario_id = ?
+            WHERE s.usuario_id = ? AND s.estado = 'activa'
         `, [usuario_id]);
 
         if (datosPlan.length === 0) {
@@ -163,7 +163,7 @@ app.post('/api/reservas', async (req, res) => {
         const [misReservas] = await connection.execute('SELECT COUNT(*) as total FROM reservas WHERE usuario_id = ?', [usuario_id]);
         const clasesConsumidas = misReservas[0].total;
 
-        if (clasesConsumidas >= limiteClases) {
+        if (limiteClases > 0 && clasesConsumidas >= limiteClases) {
             return res.status(400).json({ error: 'Límite alcanzado. Ya consumiste todas las clases de tu plan.' });
         }
 
@@ -183,7 +183,11 @@ app.post('/api/reservas', async (req, res) => {
             return res.status(400).json({ error: 'Ya estás anotado en esta clase' });
         }
 
-        await connection.execute('INSERT INTO reservas (clase_id, usuario_id) VALUES (?, ?)', [clase_id, usuario_id]);
+        // MAGIA ACÁ: Si lo reserva desde el celu, firma como "Alumno"
+        await connection.execute(
+            'INSERT INTO reservas (clase_id, usuario_id, cambio_horario) VALUES (?, ?, "Alumno")', 
+            [clase_id, usuario_id]
+        );
 
         res.json({ mensaje: '¡Reserva confirmada con éxito!' });
 
@@ -985,7 +989,7 @@ app.get('/api/clases/:id/alumnos', async (req, res) => {
     }
 });
 
-// Cambiar Asistencia (Presente/Pendiente)
+// Cambiar Asistencia (Presente/Pendiente) con Etiqueta de Admin
 app.put('/api/reservas/:id/asistencia', async (req, res) => {
     let connection;
     try {
@@ -993,7 +997,11 @@ app.put('/api/reservas/:id/asistencia', async (req, res) => {
         const reservaId = req.params.id;
         const { asistencia } = req.body; 
 
-        await connection.execute('UPDATE reservas SET asistencia = ? WHERE id = ?', [asistencia, reservaId]);
+        // Si el admin está forzando un presente o ausente manual, guardamos su firma
+        await connection.execute(
+            'UPDATE reservas SET asistencia = ?, cambio_horario = ? WHERE id = ?', 
+            [asistencia, 'Admin', reservaId]
+        );
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: "Error interno" });
@@ -1031,8 +1039,8 @@ app.post('/api/clases/:id/alumnos', async (req, res) => {
             const { titulo, fecha_hora } = clase[0];
             
             const query = `
-                INSERT INTO reservas (clase_id, usuario_id, estado, asistencia)
-                SELECT c.id, ?, 'reservada', 'pendiente'
+                INSERT INTO reservas (clase_id, usuario_id, estado, asistencia, cambio_horario)
+                SELECT c.id, ?, 'reservada', 'pendiente', NULL
                 FROM clases c
                 WHERE c.titulo = ? 
                   AND TIME(c.fecha_hora) = TIME(?) 
@@ -1042,7 +1050,11 @@ app.post('/api/clases/:id/alumnos', async (req, res) => {
             `;
             await connection.execute(query, [usuario_id, titulo, fecha_hora, fecha_hora, fecha_hora, usuario_id]);
         } else {
-            await connection.execute('INSERT INTO reservas (clase_id, usuario_id, estado, asistencia) VALUES (?, ?, "reservada", "pendiente")', [claseId, usuario_id]);
+            // MAGIA ACÁ: Si es un turno suelto anotado por el profe, le clava la firma "Admin"
+            await connection.execute(
+                'INSERT INTO reservas (clase_id, usuario_id, estado, asistencia, cambio_horario) VALUES (?, ?, "reservada", "pendiente", "Admin")', 
+                [claseId, usuario_id]
+            );
         }
         res.json({ success: true });
     } catch (error) {
@@ -1414,24 +1426,22 @@ app.get('/api/suscripciones/usuario/:id', async (req, res) => {
 });
 
 // =========================================================
-// (Asistencia y Días Fijos) ---
+// 1. PERFIL 360: ASISTENCIA PASADA Y FUTURA
 // =========================================================
 app.get('/api/alumnos/:id/asistencia', async (req, res) => {
     let connection;
     try {
         connection = await mysql.createConnection(dbConfig);
         
-        // 1. Buscamos los días fijos directo del usuario
         const [usuario] = await connection.execute(`SELECT dias_fijos FROM usuarios WHERE id = ?`, [req.params.id]);
 
-        // 2. Buscamos el historial
         const [historial] = await connection.execute(`
-            SELECT c.titulo, r.fecha_reserva, r.asistencia 
+            SELECT c.titulo, c.fecha_hora as fecha_reserva, r.asistencia, r.cambio_horario 
             FROM reservas r 
             JOIN clases c ON r.clase_id = c.id 
             WHERE r.usuario_id = ? 
-            ORDER BY r.fecha_reserva DESC 
-            LIMIT 3
+            ORDER BY c.fecha_hora DESC 
+            LIMIT 20
         `, [req.params.id]);
 
         res.json({
@@ -1769,6 +1779,38 @@ app.put('/api/usuarios/:id/perfil-fisico', async (req, res) => {
     } catch (error) {
         console.error("Error al guardar perfil físico:", error);
         res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// =========================================================
+// CERROJO DE FEEDBACK (Obligatorio Sábado a Sábado)
+// =========================================================
+app.get('/api/alumnos/:id/estado-app', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+        
+        // Buscamos si el alumno respondió el formulario en los últimos 7 días
+        const [respuestas] = await connection.execute(`
+            SELECT id FROM respuestas_feedback 
+            WHERE usuario_id = ? AND fecha >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        `, [req.params.id]);
+
+        // Si es fin de semana (Viernes, Sábado o Domingo) y no hay respuestas, se bloquea.
+        const hoy = new Date();
+        const diaSemana = hoy.getDay(); // 0: Dom, 5: Vie, 6: Sab
+        const esFinDeSemana = diaSemana === 0 || diaSemana === 5 || diaSemana === 6;
+        
+        const debeFeedback = esFinDeSemana && respuestas.length === 0;
+
+        res.json({ 
+            bloquear_app: debeFeedback, 
+            mensaje: debeFeedback ? "Tenés un feedback semanal pendiente para poder seguir entrenando." : "OK" 
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error verificando estado' });
     } finally {
         if (connection) await connection.end();
     }
