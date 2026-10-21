@@ -1426,7 +1426,7 @@ app.get('/api/suscripciones/usuario/:id', async (req, res) => {
 });
 
 // =========================================================
-// 1. PERFIL 360: ASISTENCIA PASADA Y FUTURA
+// 1. PERFIL 360: ASISTENCIA PASADA Y FUTURA (CORREGIDA)
 // =========================================================
 app.get('/api/alumnos/:id/asistencia', async (req, res) => {
     let connection;
@@ -1435,20 +1435,33 @@ app.get('/api/alumnos/:id/asistencia', async (req, res) => {
         
         const [usuario] = await connection.execute(`SELECT dias_fijos FROM usuarios WHERE id = ?`, [req.params.id]);
 
-        const [historial] = await connection.execute(`
-            SELECT c.titulo, c.fecha_hora as fecha_reserva, r.asistencia, r.cambio_horario 
+        // Próximos 10 turnos (Desde HOY hacia adelante, el más cercano primero)
+        const [futuros] = await connection.execute(`
+            SELECT c.titulo, DATE_FORMAT(c.fecha_hora, '%Y-%m-%d %H:%i') as fecha_reserva, r.asistencia, r.cambio_horario 
             FROM reservas r 
             JOIN clases c ON r.clase_id = c.id 
-            WHERE r.usuario_id = ? 
+            WHERE r.usuario_id = ? AND c.fecha_hora >= NOW()
+            ORDER BY c.fecha_hora ASC 
+            LIMIT 10
+        `, [req.params.id]);
+
+        // Últimos 10 turnos (Desde HOY hacia atrás, el más reciente primero)
+        const [pasados] = await connection.execute(`
+            SELECT c.titulo, DATE_FORMAT(c.fecha_hora, '%Y-%m-%d %H:%i') as fecha_reserva, r.asistencia, r.cambio_horario 
+            FROM reservas r 
+            JOIN clases c ON r.clase_id = c.id 
+            WHERE r.usuario_id = ? AND c.fecha_hora < NOW()
             ORDER BY c.fecha_hora DESC 
-            LIMIT 20
+            LIMIT 10
         `, [req.params.id]);
 
         res.json({
             dias_fijos: usuario[0]?.dias_fijos || null,
-            historial: historial
+            futuros: futuros,
+            pasados: pasados
         });
     } catch (error) {
+        console.error("Error en asistencia:", error);
         res.status(500).json({ error: 'Error interno' });
     } finally {
         if (connection) await connection.end();
